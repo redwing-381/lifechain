@@ -1,10 +1,10 @@
+// app/dashboard/capsules/create/page.tsx
 "use client"
 
-import type React from "react"
-
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { Check, FileText, Upload, Users } from "lucide-react"
+import Web3 from "web3"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -13,17 +13,271 @@ import { Textarea } from "@/components/ui/textarea"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import DashboardLayout from "@/components/dashboard-layout"
 
+declare global {
+  interface Window {
+    ethereum?: any
+  }
+}
+
+const CONTRACT_ADDRESS = "0xc2152952be4DbD49f27BcB68b2C3D96b2135b240";
+const CONTRACT_ABI = [
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "id",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "owner",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "string",
+        "name": "ipfsHash",
+        "type": "string"
+      }
+    ],
+    "name": "CapsuleCreated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "user",
+        "type": "address"
+      }
+    ],
+    "name": "UserLoggedIn",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "user",
+        "type": "address"
+      }
+    ],
+    "name": "UserRegistered",
+    "type": "event"
+  },
+  {
+    "inputs": [],
+    "name": "capsuleCounter",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "name": "capsules",
+    "outputs": [
+      {
+        "internalType": "string",
+        "name": "name",
+        "type": "string"
+      },
+      {
+        "internalType": "string",
+        "name": "description",
+        "type": "string"
+      },
+      {
+        "internalType": "string",
+        "name": "ipfsHash",
+        "type": "string"
+      },
+      {
+        "internalType": "address",
+        "name": "owner",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "threshold",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "createdAt",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "_name",
+        "type": "string"
+      },
+      {
+        "internalType": "string",
+        "name": "_description",
+        "type": "string"
+      },
+      {
+        "internalType": "string",
+        "name": "_ipfsHash",
+        "type": "string"
+      },
+      {
+        "internalType": "address[]",
+        "name": "_trustees",
+        "type": "address[]"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_threshold",
+        "type": "uint256"
+      }
+    ],
+    "name": "createCapsule",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_user",
+        "type": "address"
+      }
+    ],
+    "name": "getUserCapsules",
+    "outputs": [
+      {
+        "internalType": "uint256[]",
+        "name": "",
+        "type": "uint256[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "login",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "name": "users",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "exists",
+        "type": "bool"
+      },
+      {
+        "internalType": "uint256",
+        "name": "lastLogin",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  }
+];
+const uploadToIPFS = async (files: File[]) => {
+  try {
+    const formData = new FormData()
+    // Append each file with the same field name
+    files.forEach(file => formData.append('file', file, file.name))
+
+    const response = await fetch('/api/upload', {
+      method: 'POST',
+      body: formData,
+    })
+
+    const data = await response.json()
+    
+    if (!response.ok || !data.success) {
+      throw new Error(data.error || "IPFS upload failed")
+    }
+
+    return data.ipfsHash
+  } catch (err: any) {
+    console.error("IPFS upload error:", err)
+    throw new Error("Failed to upload files to IPFS: " + err.message)
+  }
+}
 export default function CreateCapsulePage() {
   const router = useRouter()
   const [step, setStep] = useState(1)
+  const [web3, setWeb3] = useState<Web3 | null>(null)
+  const [contract, setContract] = useState<any>(null)
+  const [account, setAccount] = useState<string>("")
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState("")
+
   const [capsuleData, setCapsuleData] = useState({
     name: "",
     description: "",
     files: [] as File[],
     trustees: [] as string[],
-    threshold: 3,
+    threshold: 1,
     newTrustee: "",
   })
+
+  useEffect(() => {
+    const initializeWeb3 = async () => {
+      if (typeof window.ethereum !== "undefined") {
+        try {
+          const web3Instance = new Web3(window.ethereum)
+          setWeb3(web3Instance)
+          
+          const accounts = await web3Instance.eth.requestAccounts()
+          setAccount(accounts[0])
+          
+          const contractInstance = new web3Instance.eth.Contract(
+            CONTRACT_ABI,
+            CONTRACT_ADDRESS
+          )
+          setContract(contractInstance)
+        } catch (err) {
+          setError("Please connect your wallet first")
+        }
+      } else {
+        setError("Please install MetaMask")
+      }
+    }
+    initializeWeb3()
+  }, [])
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
@@ -34,14 +288,25 @@ export default function CreateCapsulePage() {
     }
   }
 
+  const validateAddress = (address: string) => {
+    return Web3.utils.isAddress(address)
+  }
+
   const handleAddTrustee = () => {
-    if (capsuleData.newTrustee.trim()) {
-      setCapsuleData({
-        ...capsuleData,
-        trustees: [...capsuleData.trustees, capsuleData.newTrustee.trim()],
-        newTrustee: "",
-      })
+    const address = capsuleData.newTrustee.trim()
+    if (!address) return
+    
+    if (!validateAddress(address)) {
+      setError("Invalid Ethereum address")
+      return
     }
+
+    setCapsuleData({
+      ...capsuleData,
+      trustees: [...capsuleData.trustees, Web3.utils.toChecksumAddress(address)],
+      newTrustee: "",
+    })
+    setError("")
   }
 
   const handleRemoveTrustee = (index: number) => {
@@ -51,10 +316,42 @@ export default function CreateCapsulePage() {
     })
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    // In a real app, this would create the capsule
-    router.push("/dashboard/capsules")
+    setLoading(true)
+    setError("")
+
+    try {
+      // Validate inputs
+      if (!capsuleData.name.trim()) throw new Error("Capsule name is required")
+      if (capsuleData.files.length === 0) throw new Error("Please upload at least one file")
+      if (capsuleData.trustees.length === 0) throw new Error("Please add at least one trustee")
+      if (capsuleData.threshold < 1 || capsuleData.threshold > capsuleData.trustees.length) {
+        throw new Error("Invalid approval threshold")
+      }
+
+      // Upload files to IPFS
+      const ipfsHash = await uploadToIPFS(capsuleData.files)
+      console.log("Uploaded to IPFS:", ipfsHash) // For debugging
+
+      // Create capsule on blockchain
+      await contract.methods.createCapsule(
+        capsuleData.name,
+        capsuleData.description,
+        ipfsHash,
+        capsuleData.trustees,
+        capsuleData.threshold
+      ).send({ from: account })
+
+      router.push("/dashboard/capsules")
+    } catch (err: any) {
+      console.error("Capsule creation failed:", err)
+      setError(err.message || "Failed to create capsule")
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
@@ -66,6 +363,12 @@ export default function CreateCapsulePage() {
             <CardDescription>Store your digital legacy securely with blockchain technology</CardDescription>
           </CardHeader>
           <CardContent>
+            {error && (
+              <div className="mb-4 p-4 bg-red-100 text-red-700 rounded-md">
+                {error}
+              </div>
+            )}
+
             <div className="mb-8">
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-2">
@@ -108,6 +411,7 @@ export default function CreateCapsulePage() {
                       onChange={(e) => setCapsuleData({ ...capsuleData, name: e.target.value })}
                       placeholder="e.g., Family Photos, Financial Documents"
                       required
+                      disabled={loading}
                     />
                   </div>
                   <div className="space-y-2">
@@ -118,6 +422,7 @@ export default function CreateCapsulePage() {
                       onChange={(e) => setCapsuleData({ ...capsuleData, description: e.target.value })}
                       placeholder="Describe the contents and purpose of this capsule"
                       rows={3}
+                      disabled={loading}
                     />
                   </div>
                   <div className="space-y-2">
@@ -125,8 +430,20 @@ export default function CreateCapsulePage() {
                     <div className="border border-dashed border-input rounded-md p-6 text-center">
                       <Upload className="mx-auto h-8 w-8 text-muted-foreground mb-2" />
                       <p className="text-sm text-muted-foreground mb-2">Drag and drop files here or click to browse</p>
-                      <Input id="files" type="file" multiple className="hidden" onChange={handleFileChange} />
-                      <Button type="button" variant="outline" onClick={() => document.getElementById("files")?.click()}>
+                      <Input 
+                        id="files" 
+                        type="file" 
+                        multiple 
+                        className="hidden" 
+                        onChange={handleFileChange}
+                        disabled={loading}
+                      />
+                      <Button 
+                        type="button" 
+                        variant="outline" 
+                        onClick={() => document.getElementById("files")?.click()}
+                        disabled={loading}
+                      >
                         Select Files
                       </Button>
                     </div>
@@ -150,20 +467,25 @@ export default function CreateCapsulePage() {
               {step === 2 && (
                 <div className="space-y-4">
                   <div className="space-y-2">
-                    <Label htmlFor="trustees">Add Trustees</Label>
+                    <Label htmlFor="trustees">Add Trustees (Ethereum addresses)</Label>
                     <div className="flex space-x-2">
                       <Input
                         id="trustees"
                         value={capsuleData.newTrustee}
                         onChange={(e) => setCapsuleData({ ...capsuleData, newTrustee: e.target.value })}
-                        placeholder="Email or wallet address"
+                        placeholder="0x..."
+                        disabled={loading}
                       />
-                      <Button type="button" onClick={handleAddTrustee}>
+                      <Button 
+                        type="button" 
+                        onClick={handleAddTrustee}
+                        disabled={loading}
+                      >
                         Add
                       </Button>
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      Add people you trust to approve access to this capsule
+                      Add Ethereum addresses of trusted parties
                     </p>
                   </div>
                   {capsuleData.trustees.length > 0 && (
@@ -174,9 +496,15 @@ export default function CreateCapsulePage() {
                           <li key={index} className="flex items-center justify-between rounded-md border p-2">
                             <div className="flex items-center">
                               <Users className="h-4 w-4 mr-2 text-muted-foreground" />
-                              <span className="text-sm">{trustee}</span>
+                              <span className="text-sm font-mono">{trustee}</span>
                             </div>
-                            <Button type="button" variant="ghost" size="sm" onClick={() => handleRemoveTrustee(index)}>
+                            <Button 
+                              type="button" 
+                              variant="ghost" 
+                              size="sm" 
+                              onClick={() => handleRemoveTrustee(index)}
+                              disabled={loading}
+                            >
                               Remove
                             </Button>
                           </li>
@@ -191,7 +519,7 @@ export default function CreateCapsulePage() {
                 <div className="space-y-4">
                   <div className="space-y-2">
                     <Label htmlFor="threshold">Approval Threshold</Label>
-                    <Tabs defaultValue="number" className="w-full">
+                    <Tabs defaultValue="number">
                       <TabsList className="grid w-full grid-cols-2">
                         <TabsTrigger value="number">Number</TabsTrigger>
                         <TabsTrigger value="percentage">Percentage</TabsTrigger>
@@ -206,12 +534,12 @@ export default function CreateCapsulePage() {
                             max={capsuleData.trustees.length}
                             value={capsuleData.threshold}
                             onChange={(e) =>
-                              setCapsuleData({ ...capsuleData, threshold: Number.parseInt(e.target.value) })
+                              setCapsuleData({ ...capsuleData, threshold: Number(e.target.value) })
                             }
+                            disabled={loading}
                           />
                           <p className="text-xs text-muted-foreground">
-                            Number of trustees that must approve to grant access ({capsuleData.threshold} out of{" "}
-                            {capsuleData.trustees.length})
+                            {capsuleData.threshold} out of {capsuleData.trustees.length} trustees required
                           </p>
                         </div>
                       </TabsContent>
@@ -225,16 +553,17 @@ export default function CreateCapsulePage() {
                             max={100}
                             value={Math.round((capsuleData.threshold / Math.max(1, capsuleData.trustees.length)) * 100)}
                             onChange={(e) => {
-                              const percentage = Number.parseInt(e.target.value)
+                              const percentage = Number(e.target.value)
                               const newThreshold = Math.max(
                                 1,
                                 Math.round((percentage / 100) * capsuleData.trustees.length),
                               )
                               setCapsuleData({ ...capsuleData, threshold: newThreshold })
                             }}
+                            disabled={loading}
                           />
                           <p className="text-xs text-muted-foreground">
-                            Percentage of trustees that must approve to grant access
+                            {Math.round((capsuleData.threshold / Math.max(1, capsuleData.trustees.length)) * 100)}% of trustees required
                           </p>
                         </div>
                       </TabsContent>
@@ -255,11 +584,13 @@ export default function CreateCapsulePage() {
                           </div>
                           <div className="flex justify-between">
                             <dt className="text-sm font-medium">Trustees:</dt>
-                            <dd className="text-sm">{capsuleData.trustees.length} people</dd>
+                            <dd className="text-sm">{capsuleData.trustees.length} addresses</dd>
                           </div>
                           <div className="flex justify-between">
                             <dt className="text-sm font-medium">Threshold:</dt>
-                            <dd className="text-sm">{capsuleData.threshold} approvals required</dd>
+                            <dd className="text-sm">
+                              {capsuleData.threshold} approval{capsuleData.threshold > 1 ? "s" : ""} required
+                            </dd>
                           </div>
                         </dl>
                       </CardContent>
@@ -271,17 +602,30 @@ export default function CreateCapsulePage() {
           </CardContent>
           <CardFooter className="flex justify-between">
             {step > 1 ? (
-              <Button variant="outline" onClick={() => setStep(step - 1)}>
+              <Button 
+                variant="outline" 
+                onClick={() => setStep(step - 1)}
+                disabled={loading}
+              >
                 Previous
               </Button>
             ) : (
               <div></div>
             )}
             {step < 3 ? (
-              <Button onClick={() => setStep(step + 1)}>Next</Button>
+              <Button 
+                onClick={() => setStep(step + 1)}
+                disabled={loading}
+              >
+                Next
+              </Button>
             ) : (
-              <Button type="submit" onClick={handleSubmit}>
-                Create Capsule
+              <Button 
+                type="submit" 
+                onClick={handleSubmit}
+                disabled={loading}
+              >
+                {loading ? "Creating Capsule..." : "Create Capsule"}
               </Button>
             )}
           </CardFooter>
@@ -290,4 +634,3 @@ export default function CreateCapsulePage() {
     </DashboardLayout>
   )
 }
-
