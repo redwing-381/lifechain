@@ -19,7 +19,7 @@ declare global {
   }
 }
 
-const CONTRACT_ADDRESS = "0xc2152952be4DbD49f27BcB68b2C3D96b2135b240";
+const CONTRACT_ADDRESS = "0xf3f655eBF7f62c74EA88bcb14d6230042e7A8C74";
 const CONTRACT_ABI = [
   {
     "anonymous": false,
