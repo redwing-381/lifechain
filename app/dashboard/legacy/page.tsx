@@ -1,11 +1,12 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import Link from "next/link"
 import { ChevronRight, FileText, Plus, Shield, User, Users } from "lucide-react"
+import Web3 from "web3"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Separator } from "@/components/ui/separator"
 import {
   Dialog,
@@ -19,76 +20,329 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import DashboardLayout from "@/components/dashboard-layout"
+import { toast } from "@/components/ui/use-toast"
 
-// Mock data for family tree
-const familyMembers = [
+// Contract address - you would replace this with your deployed contract address
+const CONTRACT_ADDRESS = "0xa1b48d408b1B89885ab11857A27Ba1c49eac0d60"
+
+// ABI generated from the Solidity contract
+const CONTRACT_ABI = [
   {
-    id: 1,
-    name: "You",
-    relationship: "Self",
-    email: "you@example.com",
-    isTrustee: false,
-    isHeir: false,
-    image: "/placeholder.svg?height=40&width=40",
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "wallet",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "string",
+        "name": "name",
+        "type": "string"
+      },
+      {
+        "indexed": false,
+        "internalType": "string",
+        "name": "relationship",
+        "type": "string"
+      },
+      {
+        "indexed": false,
+        "internalType": "bool",
+        "name": "isTrustee",
+        "type": "bool"
+      },
+      {
+        "indexed": false,
+        "internalType": "bool",
+        "name": "isHeir",
+        "type": "bool"
+      }
+    ],
+    "name": "MemberAdded",
+    "type": "event"
   },
   {
-    id: 2,
-    name: "Sarah Johnson",
-    relationship: "Spouse",
-    email: "sarah@example.com",
-    isTrustee: true,
-    isHeir: true,
-    image: "/placeholder.svg?height=40&width=40",
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "wallet",
+        "type": "address"
+      },
+      {
+        "internalType": "string",
+        "name": "name",
+        "type": "string"
+      },
+      {
+        "internalType": "string",
+        "name": "relationship",
+        "type": "string"
+      },
+      {
+        "internalType": "bool",
+        "name": "isTrustee",
+        "type": "bool"
+      },
+      {
+        "internalType": "bool",
+        "name": "isHeir",
+        "type": "bool"
+      }
+    ],
+    "name": "addMember",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
   },
   {
-    id: 3,
-    name: "Michael Chen",
-    relationship: "Brother",
-    email: "michael@example.com",
-    isTrustee: true,
-    isHeir: false,
-    image: "/placeholder.svg?height=40&width=40",
+    "inputs": [],
+    "name": "getAllMembers",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "string",
+            "name": "name",
+            "type": "string"
+          },
+          {
+            "internalType": "string",
+            "name": "relationship",
+            "type": "string"
+          },
+          {
+            "internalType": "bool",
+            "name": "isTrustee",
+            "type": "bool"
+          },
+          {
+            "internalType": "bool",
+            "name": "isHeir",
+            "type": "bool"
+          }
+        ],
+        "internalType": "struct LegacyManager.Member[]",
+        "name": "",
+        "type": "tuple[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
   },
   {
-    id: 4,
-    name: "Emma Johnson",
-    relationship: "Daughter",
-    email: "emma@example.com",
-    isTrustee: false,
-    isHeir: true,
-    image: "/placeholder.svg?height=40&width=40",
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "wallet",
+        "type": "address"
+      }
+    ],
+    "name": "isMember",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
   },
   {
-    id: 5,
-    name: "Lisa Wong",
-    relationship: "Friend",
-    email: "lisa@example.com",
-    isTrustee: true,
-    isHeir: false,
-    image: "/placeholder.svg?height=40&width=40",
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "name": "memberAddresses",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
   },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "name": "members",
+    "outputs": [
+      {
+        "internalType": "string",
+        "name": "name",
+        "type": "string"
+      },
+      {
+        "internalType": "string",
+        "name": "relationship",
+        "type": "string"
+      },
+      {
+        "internalType": "bool",
+        "name": "isTrustee",
+        "type": "bool"
+      },
+      {
+        "internalType": "bool",
+        "name": "isHeir",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  }
 ]
 
+// Type definition for a Member
+interface Member {
+  name: string
+  relationship: string
+  isTrustee: boolean
+  isHeir: boolean
+  wallet: string
+}
+
+// Instead of extending Window, use this approach for ethereum
+declare global {
+  interface Window {
+    ethereum?: any;
+  }
+}
+
 export default function LegacyPage() {
+  const [members, setMembers] = useState<Member[]>([])
   const [newMember, setNewMember] = useState({
     name: "",
     relationship: "",
-    email: "",
+    wallet: "",
     isTrustee: false,
     isHeir: false,
   })
+  const [web3, setWeb3] = useState<Web3 | null>(null)
+  const [contract, setContract] = useState<any>(null)
+  const [account, setAccount] = useState<string>("")
+  const [loading, setLoading] = useState(true)
+  const [isDialogOpen, setIsDialogOpen] = useState(false)
 
-  const handleAddMember = () => {
-    // In a real app, this would add the member to the database
-    console.log("Adding member:", newMember)
-    // Reset form
-    setNewMember({
-      name: "",
-      relationship: "",
-      email: "",
-      isTrustee: false,
-      isHeir: false,
-    })
+  useEffect(() => {
+    const initializeWeb3 = async () => {
+      if (!window.ethereum) {
+        toast({ title: "Error", description: "Please install MetaMask" })
+        setLoading(false)
+        return
+      }
+
+      try {
+        const web3Instance = new Web3(window.ethereum)
+        await window.ethereum.request({ method: "eth_requestAccounts" })
+        const accounts = await web3Instance.eth.getAccounts()
+        
+        setWeb3(web3Instance)
+        setAccount(accounts[0])
+        
+        const contractInstance = new web3Instance.eth.Contract(CONTRACT_ABI, CONTRACT_ADDRESS)
+        setContract(contractInstance)
+        await fetchMembers(contractInstance, accounts[0])
+      } catch (err) {
+        console.error("Initialization error:", err)
+        toast({ title: "Error", description: "Failed to connect to blockchain" })
+      }
+      setLoading(false)
+    }
+
+    initializeWeb3()
+  }, [])
+
+  const fetchMembers = async (contractInstance: any, currentAccount: string) => {
+    try {
+      // Get all member addresses
+      const memberCount = await contractInstance.methods.getAllMembers().call({ from: currentAccount })
+      
+      // Format the members with their wallet addresses
+      let formattedMembers: Member[] = []
+      
+      for (let i = 0; i < memberCount.length; i++) {
+        const memberAddress = await contractInstance.methods.memberAddresses(i).call({ from: currentAccount })
+        formattedMembers.push({
+          name: memberCount[i].name,
+          relationship: memberCount[i].relationship,
+          isTrustee: memberCount[i].isTrustee,
+          isHeir: memberCount[i].isHeir,
+          wallet: memberAddress
+        })
+      }
+      
+      setMembers(formattedMembers)
+    } catch (err) {
+      console.error("Fetch error:", err)
+      toast({ title: "Error", description: "Failed to load members" })
+    }
+  }
+
+  const handleAddMember = async () => {
+    if (!web3?.utils.isAddress(newMember.wallet)) {
+      toast({ title: "Invalid Address", description: "Please enter a valid wallet address" })
+      return
+    }
+
+    if (!newMember.name || !newMember.relationship) {
+      toast({ title: "Missing Information", description: "Please fill in all required fields" })
+      return
+    }
+
+    try {
+      setLoading(true)
+      await contract.methods.addMember(
+        newMember.wallet,
+        newMember.name,
+        newMember.relationship,
+        newMember.isTrustee,
+        newMember.isHeir
+      ).send({ from: account })
+
+      toast({ title: "Success", description: "Member added successfully" })
+      setNewMember({
+        name: "",
+        relationship: "",
+        wallet: "",
+        isTrustee: false,
+        isHeir: false,
+      })
+      setIsDialogOpen(false)
+      await fetchMembers(contract, account)
+    } catch (err) {
+      console.error("Add member error:", err)
+      toast({ title: "Error", description: "Failed to add member" })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const getTruncatedAddress = (address: string) => {
+    return `${address.substring(0, 6)}...${address.substring(address.length - 4)}`
+  }
+
+  if (loading) {
+    return (
+      <DashboardLayout>
+        <div className="flex justify-center items-center h-64">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+        </div>
+      </DashboardLayout>
+    )
   }
 
   return (
@@ -99,7 +353,7 @@ export default function LegacyPage() {
             <h2 className="text-2xl font-bold tracking-tight">Legacy Management</h2>
             <p className="text-muted-foreground">Manage your heirs and trustees for your digital legacy</p>
           </div>
-          <Dialog>
+          <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
             <DialogTrigger asChild>
               <Button>
                 <Plus className="mr-2 h-4 w-4" />
@@ -110,7 +364,7 @@ export default function LegacyPage() {
               <DialogHeader>
                 <DialogTitle>Add Person to Legacy</DialogTitle>
                 <DialogDescription>
-                  Add a family member, friend, or trusted individual to your legacy plan.
+                  Add a wallet address to your legacy plan
                 </DialogDescription>
               </DialogHeader>
               <div className="grid gap-4 py-4">
@@ -133,13 +387,12 @@ export default function LegacyPage() {
                   />
                 </div>
                 <div className="grid gap-2">
-                  <Label htmlFor="email">Email</Label>
+                  <Label htmlFor="wallet">Wallet Address</Label>
                   <Input
-                    id="email"
-                    type="email"
-                    value={newMember.email}
-                    onChange={(e) => setNewMember({ ...newMember, email: e.target.value })}
-                    placeholder="name@example.com"
+                    id="wallet"
+                    value={newMember.wallet}
+                    onChange={(e) => setNewMember({ ...newMember, wallet: e.target.value })}
+                    placeholder="0x..."
                   />
                 </div>
                 <div className="flex items-center space-x-2">
@@ -151,7 +404,7 @@ export default function LegacyPage() {
                     className="h-4 w-4 rounded border-gray-300"
                   />
                   <Label htmlFor="trustee" className="text-sm font-normal">
-                    Make this person a trustee (can approve access requests)
+                    Make this address a trustee
                   </Label>
                 </div>
                 <div className="flex items-center space-x-2">
@@ -163,15 +416,15 @@ export default function LegacyPage() {
                     className="h-4 w-4 rounded border-gray-300"
                   />
                   <Label htmlFor="heir" className="text-sm font-normal">
-                    Make this person an heir (will inherit your digital assets)
+                    Make this address an heir
                   </Label>
                 </div>
               </div>
               <DialogFooter>
-                <Button variant="outline" onClick={() => {}}>
-                  Cancel
+                <Button variant="outline" onClick={() => setIsDialogOpen(false)}>Cancel</Button>
+                <Button onClick={handleAddMember} disabled={loading}>
+                  {loading ? 'Adding...' : 'Add Address'}
                 </Button>
-                <Button onClick={handleAddMember}>Add Person</Button>
               </DialogFooter>
             </DialogContent>
           </Dialog>
@@ -185,35 +438,41 @@ export default function LegacyPage() {
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                {familyMembers.map((member) => (
-                  <div key={member.id} className="flex items-center justify-between rounded-md border p-4">
-                    <div className="flex items-center gap-4">
-                      <Avatar className="h-10 w-10">
-                        <AvatarImage src={member.image} alt={member.name} />
-                        <AvatarFallback>{member.name.charAt(0)}</AvatarFallback>
-                      </Avatar>
-                      <div>
-                        <p className="font-medium">{member.name}</p>
-                        <p className="text-sm text-muted-foreground">{member.relationship}</p>
+                {members.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    No members added yet. Add your first person to get started.
+                  </div>
+                ) : (
+                  members.map((member) => (
+                    <div key={member.wallet} className="flex items-center justify-between rounded-md border p-4">
+                      <div className="flex items-center gap-4">
+                        <Avatar className="h-10 w-10">
+                          <AvatarFallback>{member.name.charAt(0).toUpperCase()}</AvatarFallback>
+                        </Avatar>
+                        <div>
+                          <p className="font-medium">{member.name}</p>
+                          <p className="text-sm text-muted-foreground">{member.relationship}</p>
+                          <p className="text-xs font-mono text-muted-foreground">{getTruncatedAddress(member.wallet)}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {member.isTrustee && (
+                          <div className="rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-600">
+                            Trustee
+                          </div>
+                        )}
+                        {member.isHeir && (
+                          <div className="rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-600">
+                            Heir
+                          </div>
+                        )}
+                        <Button variant="ghost" size="icon">
+                          <ChevronRight className="h-4 w-4" />
+                        </Button>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      {member.isTrustee && (
-                        <div className="rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-600">
-                          Trustee
-                        </div>
-                      )}
-                      {member.isHeir && (
-                        <div className="rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-600">
-                          Heir
-                        </div>
-                      )}
-                      <Button variant="ghost" size="icon">
-                        <ChevronRight className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
+                  ))
+                )}
               </div>
             </CardContent>
           </Card>
@@ -231,7 +490,7 @@ export default function LegacyPage() {
                       <Users className="h-5 w-5 text-muted-foreground" />
                       <span className="text-sm font-medium">Trustees</span>
                     </div>
-                    <span className="text-sm">{familyMembers.filter((m) => m.isTrustee).length}</span>
+                    <span className="text-sm">{members.filter(m => m.isTrustee).length}</span>
                   </div>
                   <Separator />
                   <div className="flex items-center justify-between">
@@ -239,7 +498,7 @@ export default function LegacyPage() {
                       <User className="h-5 w-5 text-muted-foreground" />
                       <span className="text-sm font-medium">Heirs</span>
                     </div>
-                    <span className="text-sm">{familyMembers.filter((m) => m.isHeir).length}</span>
+                    <span className="text-sm">{members.filter(m => m.isHeir).length}</span>
                   </div>
                   <Separator />
                   <div className="flex items-center justify-between">
@@ -247,7 +506,7 @@ export default function LegacyPage() {
                       <Shield className="h-5 w-5 text-muted-foreground" />
                       <span className="text-sm font-medium">Capsules</span>
                     </div>
-                    <span className="text-sm">12</span>
+                    <span className="text-sm">0</span>
                   </div>
                 </div>
               </CardContent>
@@ -292,4 +551,3 @@ export default function LegacyPage() {
     </DashboardLayout>
   )
 }
-
